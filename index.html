@@ -3,112 +3,152 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>ZXing QR認識テスト</title>
+<title>ZXing QR認識・カメラ選択テスト</title>
 <script src="https://unpkg.com/@zxing/browser@latest"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#111;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}
-.wrap{max-width:560px;margin:auto;padding:16px;text-align:center}
-h1{font-size:25px;margin:8px 0 12px}
-.note{background:#222;border-radius:10px;padding:12px;text-align:left;line-height:1.5;margin-bottom:12px}
-video{width:100%;max-height:62vh;background:#000;border-radius:12px;object-fit:cover}
-.buttons{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
-button{min-height:58px;border:0;border-radius:10px;color:white;font-size:19px;font-weight:800}
+.wrap{max-width:560px;margin:auto;padding:14px;text-align:center}
+h1{font-size:23px;margin:6px 0 10px}
+.note{background:#222;border-radius:10px;padding:10px;text-align:left;line-height:1.45;margin-bottom:10px;font-size:15px}
+select{width:100%;min-height:52px;padding:7px;border-radius:9px;font-size:16px;background:#fff;color:#111}
+video{width:100%;max-height:58vh;background:#000;border-radius:12px;object-fit:cover;margin-top:10px}
+.buttons{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
+button{min-height:56px;border:0;border-radius:9px;color:#fff;font-size:18px;font-weight:800}
 #start{background:#087bd3} #stop{background:#555}
-#status{background:#fff;color:#111;text-align:left;padding:12px;border-radius:10px;min-height:84px;margin-top:12px;word-break:break-all}
-.ok{font-size:22px;font-weight:900;color:#087a38}
+#status{background:#fff;color:#111;text-align:left;padding:11px;border-radius:9px;min-height:78px;margin-top:10px;word-break:break-all}
+.ok{font-size:21px;font-weight:900;color:#087a38}
 .err{font-weight:900;color:#b00020}
 </style>
 </head>
 <body>
 <div class="wrap">
-<h1>ZXing QR認識テスト</h1>
+<h1>ZXing QR認識・カメラ選択テスト</h1>
+
 <div class="note">
-今回は <b>html5-qrcode を使用しません。</b><br>
-ZXingで背面カメラ映像からQRコードを連続認識します。<br>
-読み取った内容は下にそのまま表示します。
+① 最初に「カメラ開始」を押してカメラを許可してください。<br>
+② カメラ一覧が取得されたら、別の背面カメラも選択できます。<br>
+③ QRが読めたら、画面下に内容を表示します。
 </div>
+
+<select id="cameraSelect">
+  <option value="">背面カメラ自動選択</option>
+</select>
 
 <video id="video" playsinline muted></video>
 
 <div class="buttons">
-<button id="start" type="button">カメラ開始</button>
-<button id="stop" type="button">停止</button>
+  <button id="start" type="button">カメラ開始 / 切替</button>
+  <button id="stop" type="button">停止</button>
 </div>
 
 <div id="status">未開始</div>
 </div>
 
 <script>
-let reader = null;
-let controls = null;
-let gotResult = false;
+let reader=null;
+let controls=null;
+let gotResult=false;
+let devicesLoaded=false;
 
-const statusBox = document.getElementById('status');
-const video = document.getElementById('video');
+const statusBox=document.getElementById('status');
+const video=document.getElementById('video');
+const cameraSelect=document.getElementById('cameraSelect');
 
 function esc(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
 
-async function stopScan(){
-  if(controls){
-    try{ controls.stop(); }catch(e){}
-    controls = null;
+async function loadCameras(){
+  try{
+    const devices=await navigator.mediaDevices.enumerateDevices();
+    const cameras=devices.filter(d=>d.kind==='videoinput');
+
+    const current=cameraSelect.value;
+    cameraSelect.innerHTML='<option value="">背面カメラ自動選択</option>';
+
+    cameras.forEach((cam,i)=>{
+      const option=document.createElement('option');
+      option.value=cam.deviceId;
+      option.textContent=cam.label || ('カメラ '+(i+1));
+      cameraSelect.appendChild(option);
+    });
+
+    if(current && cameras.some(c=>c.deviceId===current)){
+      cameraSelect.value=current;
+    }
+
+    devicesLoaded=true;
+  }catch(e){
+    statusBox.innerHTML='<div class="err">カメラ一覧取得エラー</div>'+esc(e.message||e);
   }
-  gotResult = false;
-  statusBox.textContent = 'カメラを停止しました。';
+}
+
+async function stopScan(showMessage=true){
+  if(controls){
+    try{controls.stop();}catch(e){}
+    controls=null;
+  }
+  gotResult=false;
+  if(showMessage) statusBox.textContent='カメラを停止しました。';
 }
 
 async function startScan(){
-  if(controls) return;
-
-  gotResult = false;
-  statusBox.textContent = 'カメラを起動しています…';
+  await stopScan(false);
+  gotResult=false;
+  statusBox.textContent='カメラを起動しています…';
 
   try{
-    reader = new ZXingBrowser.BrowserQRCodeReader(undefined, {
-      delayBetweenScanAttempts: 100
+    reader=new ZXingBrowser.BrowserQRCodeReader(undefined,{
+      delayBetweenScanAttempts:80
     });
 
-    controls = await reader.decodeFromConstraints(
-      {
-        audio:false,
-        video:{
-          facingMode:{ideal:'environment'},
-          width:{ideal:1920},
-          height:{ideal:1080}
-        }
-      },
+    const selected=cameraSelect.value;
+
+    const constraints={
+      audio:false,
+      video:selected
+        ? {deviceId:{exact:selected},width:{ideal:1920},height:{ideal:1080}}
+        : {facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}
+    };
+
+    controls=await reader.decodeFromConstraints(
+      constraints,
       video,
-      (result, error) => {
+      (result,error)=>{
         if(result && !gotResult){
-          gotResult = true;
-          const text = result.getText ? result.getText() : String(result.text || result);
-          statusBox.innerHTML =
-            '<div class="ok">QR読取成功</div><div>' + esc(text) + '</div>';
+          gotResult=true;
+          const text=result.getText ? result.getText() : String(result.text||result);
+          statusBox.innerHTML='<div class="ok">QR読取成功</div><div>'+esc(text)+'</div>';
         }
       }
     );
 
+    await loadCameras();
+
     if(!gotResult){
-      statusBox.textContent = 'カメラ起動成功。QRコードを枠いっぱいに近づけてください。';
+      statusBox.textContent=
+        'カメラ起動成功。読めない場合は上のカメラ一覧から別の背面カメラを選び、「カメラ開始 / 切替」を押してください。';
     }
   }catch(e){
-    controls = null;
-    statusBox.innerHTML =
-      '<div class="err">カメラ起動エラー</div><div>' +
-      esc(e && e.message ? e.message : e) + '</div>';
+    controls=null;
+    statusBox.innerHTML='<div class="err">カメラ起動エラー</div><div>'+esc(e.message||e)+'</div>';
   }
 }
 
-document.getElementById('start').addEventListener('click', startScan);
-document.getElementById('stop').addEventListener('click', stopScan);
+document.getElementById('start').addEventListener('click',startScan);
+document.getElementById('stop').addEventListener('click',()=>stopScan(true));
 
-window.addEventListener('pagehide', () => {
+cameraSelect.addEventListener('change',()=>{
   if(controls){
-    try{ controls.stop(); }catch(e){}
+    startScan();
+  }
+});
+
+window.addEventListener('pagehide',()=>{
+  if(controls){
+    try{controls.stop();}catch(e){}
   }
 });
 </script>
