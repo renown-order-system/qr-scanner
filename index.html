@@ -1,122 +1,124 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>BarcodeDetector QR診断</title>
-<style>
-*{box-sizing:border-box}
-body{margin:0;background:#111;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}
-.wrap{max-width:560px;margin:auto;padding:14px;text-align:center}
-h1{font-size:24px;margin:8px 0 10px}
-.box{padding:12px;border-radius:10px;margin-bottom:10px;text-align:left;line-height:1.5}
-#support{background:#333}
-video{width:100%;max-height:58vh;background:#000;border-radius:12px;object-fit:cover}
-button{width:100%;min-height:58px;border:0;border-radius:10px;background:#087bd3;color:#fff;font-size:19px;font-weight:900;margin-top:10px}
-#result{background:#fff;color:#111;min-height:90px;margin-top:10px;padding:12px;border-radius:10px;text-align:left;word-break:break-all}
-.ok{color:#087a38;font-size:21px;font-weight:900}
-.ng{color:#b00020;font-size:19px;font-weight:900}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QRコードスキャナー</title>
+    <!-- iOSで最も安定して動作するjsQRライブラリを使用 -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+            overflow: hidden;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        #result-box {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #ffffff;
+            font-size: 1.2em;
+            font-weight: bold;
+            word-break: break-all;
+            border-radius: 8px;
+            border: 2px solid #ccc;
+        }
+        .success {
+            background-color: #d4edda !important;
+            border-color: #c3e6cb !important;
+            color: #155724;
+        }
+    </style>
 </head>
 <body>
-<div class="wrap">
-<h1>BarcodeDetector QR診断</h1>
-<div id="support" class="box">対応状況を確認中…</div>
-<video id="video" playsinline muted autoplay></video>
-<button id="startBtn" type="button">カメラ開始</button>
-<div id="result">未開始</div>
-</div>
 
-<script>
-const support=document.getElementById('support');
-const result=document.getElementById('result');
-const video=document.getElementById('video');
-let stream=null;
-let detector=null;
-let running=false;
-let detecting=false;
+    <h2>QRコードスキャナー</h2>
 
-function esc(v){
-  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
-}
+    <div id="video-container">
+        <!-- カメラ映像 -->
+        <video id="video" playsinline></video>
+    </div>
 
-async function diagnose(){
-  if(!('BarcodeDetector' in window)){
-    support.innerHTML='<span class="ng">BarcodeDetector：非対応</span><br>このブラウザではネイティブQR認識を利用できません。';
-    return false;
-  }
-  try{
-    const formats=await BarcodeDetector.getSupportedFormats();
-    const qr=formats.includes('qr_code');
-    support.innerHTML=
-      '<span class="'+(qr?'ok':'ng')+'">BarcodeDetector：対応</span><br>'+
-      'QRコード：'+(qr?'対応':'非対応')+'<br>'+
-      '対応形式：'+esc(formats.join(', '));
-    if(!qr)return false;
-    detector=new BarcodeDetector({formats:['qr_code']});
-    return true;
-  }catch(e){
-    support.innerHTML='<span class="ng">BarcodeDetector診断エラー</span><br>'+esc(e.message||e);
-    return false;
-  }
-}
+    <!-- 結果表示枠 -->
+    <div id="result-box">QRコードをカメラにかざしてください</div>
 
-async function start(){
-  if(running)return;
-  result.textContent='カメラを起動しています…';
+    <!-- キャンバス（非表示で画像処理に使用） -->
+    <canvas id="canvas" hidden></canvas>
 
-  const supported=await diagnose();
-  if(!supported){
-    result.innerHTML='<span class="ng">この端末ではBarcodeDetectorによるQRテストを開始できません。</span>';
-    return;
-  }
+    <script>
+        const video = document.getElementById("video");
+        const canvasElement = document.getElementById("canvas");
+        const canvas = canvasElement.getContext("2d");
+        const resultBox = document.getElementById("result-box");
+        let isScanned = false;
 
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({
-      audio:false,
-      video:{
-        facingMode:{ideal:'environment'},
-        width:{ideal:1920},
-        height:{ideal:1080}
-      }
-    });
-    video.srcObject=stream;
-    await video.play();
-    running=true;
-    result.textContent='カメラ起動成功。QRコードを映してください。';
-    requestAnimationFrame(scanLoop);
-  }catch(e){
-    result.innerHTML='<span class="ng">カメラ起動エラー</span><br>'+esc(e.message||e);
-  }
-}
+        // 背面カメラの起動
+        navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" }
+        }).then(function(stream) {
+            video.srcObject = stream;
+            video.setAttribute("playsinline", true); // iOSで全画面表示化を防ぐ
+            video.play();
+            requestAnimationFrame(tick);
+        }).catch(function(err) {
+            resultBox.innerText = "カメラの起動に失敗しました: " + err;
+        });
 
-async function scanLoop(){
-  if(!running)return;
-  if(!detecting && video.readyState>=2){
-    detecting=true;
-    try{
-      const codes=await detector.detect(video);
-      if(codes && codes.length){
-        running=false;
-        result.innerHTML='<div class="ok">QR読取成功</div><div>'+esc(codes[0].rawValue)+'</div>';
-        return;
-      }
-    }catch(e){
-      result.innerHTML='<span class="ng">認識エラー</span><br>'+esc(e.message||e);
-    }finally{
-      detecting=false;
-    }
-  }
-  setTimeout(()=>requestAnimationFrame(scanLoop),100);
-}
+        // 毎フレーム画像解析を行う処理
+        function tick() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA && !isScanned) {
+                canvasElement.height = video.videoHeight;
+                canvasElement.width = video.videoWidth;
+                canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+                
+                // 画像データの取得
+                const imageData = canvas.getImageData(0, 0, canvasElement.width, canvasElement.height);
+                
+                // jsQRで解析
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
 
-document.getElementById('startBtn').addEventListener('click',start);
-window.addEventListener('pagehide',()=>{
-  running=false;
-  if(stream)stream.getTracks().forEach(t=>t.stop());
-});
-diagnose();
-</script>
+                // QRコードを発見した場合
+                if (code && code.data !== "") {
+                    isScanned = true; // 連続読み取り防止
+                    
+                    // バイブレーション（対応端末）
+                    if (navigator.vibrate) navigator.vibrate(200);
+
+                    // 画面の見た目を変更
+                    resultBox.classList.add("success");
+                    
+                    // URLの場合はリンク、文字の場合はテキストを表示
+                    if (code.data.startsWith('http://') || code.data.startsWith('https://')) {
+                        resultBox.innerHTML = `【読み取り成功】<br><a href="${code.data}" target="_blank">${code.data}</a>`;
+                    } else {
+                        resultBox.innerHTML = `【読み取り成功】<br>${code.data}`;
+                    }
+
+                    // ポップアップを表示
+                    alert("読み取り成功！\n\n" + code.data);
+                }
+            }
+            if (!isScanned) {
+                requestAnimationFrame(tick);
+            }
+        }
+    </script>
 </body>
 </html>
