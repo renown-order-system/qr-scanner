@@ -23,17 +23,25 @@
       padding: 16px 12px;
       overflow: hidden;
     }
+    .header-area {
+      text-align: center;
+      margin-top: 8px;
+    }
     .header-title {
       font-size: 20px;
       font-weight: bold;
-      margin-top: 8px;
-      text-align: center;
+    }
+    .header-sub {
+      font-size: 13px;
+      color: #aaa;
+      margin-top: 4px;
     }
     #reader-container {
       width: 100%;
       max-width: 480px;
       flex: 1;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       position: relative;
@@ -47,6 +55,24 @@
       border-radius: 12px;
       object-fit: cover;
     }
+    
+    /* エラー警告トーストメッセージ */
+    #error-toast {
+      display: none;
+      position: absolute;
+      bottom: 12px;
+      background: rgba(220, 38, 38, 0.95);
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      z-index: 100;
+      max-width: 90%;
+    }
+
     .footer-actions {
       width: 100%;
       padding-bottom: max(8px, env(safe-area-inset-bottom));
@@ -68,7 +94,7 @@
       background: #222;
     }
 
-    /* 読取成功後のフォールバック表示 */
+    /* 読取成功後のフォールバックUI */
     #success-overlay {
       display: none;
       position: absolute;
@@ -111,17 +137,21 @@
 </head>
 <body>
 
-  <div class="header-title" id="scan-title">品番QRコードをかざしてください</div>
+  <div class="header-area">
+    <div class="header-title">品番QRコードをかざしてください</div>
+    <div class="header-sub">（半角数字10桁の品番コード）</div>
+  </div>
 
   <div id="reader-container">
     <div id="reader"></div>
+    <div id="error-toast"></div>
   </div>
 
-  <div class="footer-actions" id="scan-footer">
+  <div class="footer-actions">
     <button class="cancel-btn" onclick="closeScanner()">キャンセル</button>
   </div>
 
-  <!-- Androidで閉じなかった場合の完了オーバーレイ -->
+  <!-- フォールバック用 -->
   <div id="success-overlay">
     <div class="success-icon">✅</div>
     <h2>読み取りが完了しました</h2>
@@ -132,6 +162,38 @@
   <script>
     let html5QrCode = null;
     let isProcessing = false;
+    let errorToastTimeout = null;
+
+    // Web Audio API による効果音生成（OS不問・遅延なし）
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playBeep(isSuccess) {
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      if (isSuccess) {
+        // 成功音：高めの「ピッ」（880Hz → 1760Hz）
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.15);
+      } else {
+        // エラー音：低めの「ブッ」（220Hz）
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.25);
+      }
+    }
 
     function startCamera() {
       html5QrCode = new Html5Qrcode("reader");
@@ -141,10 +203,7 @@
         qrbox: function(viewfinderWidth, viewfinderHeight) {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
           const qrboxSize = Math.floor(minEdge * 0.75);
-          return {
-            width: qrboxSize,
-            height: qrboxSize
-          };
+          return { width: qrboxSize, height: qrboxSize };
         },
         aspectRatio: 1.0
       };
@@ -169,34 +228,61 @@
 
     function onScanSuccess(decodedText, decodedResult) {
       if (isProcessing) return;
-      isProcessing = true;
 
-      // スマホバイブレーション（対応機種のみ）
-      if (navigator.vibrate) {
-        navigator.vibrate(100);
+      const trimmedText = (decodedText || '').trim();
+
+      // 【判定】半角数字10桁であるかチェック
+      const isProductNo = /^\d{10}$/.test(trimmedText);
+
+      if (!isProductNo) {
+        // --- ルール不一致の場合（無関係QR） ---
+        playBeep(false); // エラー音
+        showErrorToast('⚠️ 品番QRではありません<br>(10桁の数字が必要です: ' + trimmedText.slice(0, 15) + ')');
+        return; // スキャンを維持して抜ける
       }
 
+      // --- ルール一致（成功時） ---
+      isProcessing = true;
+
+      // 1. Androidバイブレーション
+      if (navigator.vibrate) {
+        navigator.vibrate(80);
+      }
+
+      // 2. 成功音（ピッ）
+      playBeep(true);
+
+      // 3. カメラ停止 & 送信して戻る
       if (html5QrCode) {
         html5QrCode.stop().then(() => {
-          sendAndClose(decodedText);
+          sendAndClose(trimmedText);
         }).catch(() => {
-          sendAndClose(decodedText);
+          sendAndClose(trimmedText);
         });
       } else {
-        sendAndClose(decodedText);
+        sendAndClose(trimmedText);
       }
     }
 
+    function showErrorToast(msg) {
+      const toast = document.getElementById('error-toast');
+      toast.innerHTML = msg;
+      toast.style.display = 'block';
+
+      if (errorToastTimeout) clearTimeout(errorToastTimeout);
+      errorToastTimeout = setTimeout(() => {
+        toast.style.display = 'none';
+      }, 2500);
+    }
+
     function sendAndClose(text) {
-      // 1. 親ウィンドウにデータ送信
       if (window.opener && !window.opener.closed) {
         window.opener.postMessage({ productNo: text }, '*');
       }
 
-      // 2. 閉じる処理を試行
       window.close();
 
-      // 3. window.close() がブロックされて閉じなかった場合のUI切り替え（200ms後）
+      // 閉じなかった場合のフォールバック表示
       setTimeout(() => {
         document.getElementById('scanned-val-text').innerHTML = '品番: <strong>' + text + '</strong> を送信しました。<br>元の発注画面へ戻ってください。';
         document.getElementById('success-overlay').style.display = 'flex';
@@ -211,7 +297,7 @@
       if (html5QrCode && html5QrCode.isScanning) {
         html5QrCode.stop().then(() => {
           window.close();
-          history.back(); // 閉じないブラウザへの追加策
+          history.back();
         }).catch(() => {
           window.close();
           history.back();
