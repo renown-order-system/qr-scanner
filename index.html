@@ -27,6 +27,7 @@
       font-size: 20px;
       font-weight: bold;
       margin-top: 8px;
+      text-align: center;
     }
     #reader-container {
       width: 100%;
@@ -66,28 +67,77 @@
     .cancel-btn:active {
       background: #222;
     }
+
+    /* 読取成功後のフォールバック表示 */
+    #success-overlay {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: #111;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      padding: 24px;
+      text-align: center;
+    }
+    #success-overlay .success-icon {
+      font-size: 56px;
+      margin-bottom: 16px;
+    }
+    #success-overlay h2 {
+      font-size: 22px;
+      margin-bottom: 12px;
+      color: #4ade80;
+    }
+    #success-overlay p {
+      font-size: 16px;
+      color: #ccc;
+      margin-bottom: 32px;
+    }
+    #success-overlay .return-btn {
+      width: 100%;
+      max-width: 300px;
+      height: 56px;
+      background: #2563eb;
+      color: white;
+      font-size: 18px;
+      font-weight: bold;
+      border: 0;
+      border-radius: 10px;
+      touch-action: manipulation;
+    }
   </style>
 </head>
 <body>
 
-  <div class="header-title">品番QRコードをかざしてください</div>
+  <div class="header-title" id="scan-title">品番QRコードをかざしてください</div>
 
   <div id="reader-container">
     <div id="reader"></div>
   </div>
 
-  <div class="footer-actions">
+  <div class="footer-actions" id="scan-footer">
     <button class="cancel-btn" onclick="closeScanner()">キャンセル</button>
+  </div>
+
+  <!-- Androidで閉じなかった場合の完了オーバーレイ -->
+  <div id="success-overlay">
+    <div class="success-icon">✅</div>
+    <h2>読み取りが完了しました</h2>
+    <p id="scanned-val-text">品番を送信しました。<br>元の発注画面へ戻ってください。</p>
+    <button class="return-btn" onclick="closeScanner()">この画面を閉じる</button>
   </div>
 
   <script>
     let html5QrCode = null;
+    let isProcessing = false;
 
     function startCamera() {
       html5QrCode = new Html5Qrcode("reader");
 
       const config = {
-        fps: 20, // 朝の爆速スキャン設定
+        fps: 20,
         qrbox: function(viewfinderWidth, viewfinderHeight) {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
           const qrboxSize = Math.floor(minEdge * 0.75);
@@ -99,15 +149,13 @@
         aspectRatio: 1.0
       };
 
-      // 背面カメラ（facingMode: "environment"）をダイレクト指定で起動
       html5QrCode.start(
         { facingMode: "environment" },
         config,
         onScanSuccess,
         onScanFailure
       ).catch(err => {
-        console.error("背面カメラ起動失敗、標準カメラを試行します", err);
-        // 万一背面カメラ指定が弾かれた場合のフォールバック
+        console.error("背面カメラ起動失敗、標準カメラ試行", err);
         html5QrCode.start(
           { facingMode: "user" },
           config,
@@ -120,7 +168,14 @@
     }
 
     function onScanSuccess(decodedText, decodedResult) {
-      // スキャン成功時に即停止
+      if (isProcessing) return;
+      isProcessing = true;
+
+      // スマホバイブレーション（対応機種のみ）
+      if (navigator.vibrate) {
+        navigator.vibrate(100);
+      }
+
       if (html5QrCode) {
         html5QrCode.stop().then(() => {
           sendAndClose(decodedText);
@@ -133,31 +188,40 @@
     }
 
     function sendAndClose(text) {
-      if (window.opener) {
+      // 1. 親ウィンドウにデータ送信
+      if (window.opener && !window.opener.closed) {
         window.opener.postMessage({ productNo: text }, '*');
-      } else {
-        window.postMessage({ productNo: text }, '*');
       }
+
+      // 2. 閉じる処理を試行
       window.close();
+
+      // 3. window.close() がブロックされて閉じなかった場合のUI切り替え（200ms後）
+      setTimeout(() => {
+        document.getElementById('scanned-val-text').innerHTML = '品番: <strong>' + text + '</strong> を送信しました。<br>元の発注画面へ戻ってください。';
+        document.getElementById('success-overlay').style.display = 'flex';
+      }, 200);
     }
 
     function onScanFailure(error) {
-      // スキャン探索中の通常ループは無視
+      // 探索ループ
     }
 
     function closeScanner() {
-      if (html5QrCode) {
+      if (html5QrCode && html5QrCode.isScanning) {
         html5QrCode.stop().then(() => {
           window.close();
+          history.back(); // 閉じないブラウザへの追加策
         }).catch(() => {
           window.close();
+          history.back();
         });
       } else {
         window.close();
+        history.back();
       }
     }
 
-    // 画面ロード時に自動でカメラ開始
     window.addEventListener('DOMContentLoaded', startCamera);
   </script>
 </body>
