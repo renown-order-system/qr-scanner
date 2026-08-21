@@ -1,191 +1,82 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
-<title>展示会 商品QRスキャナー</title>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-<style>
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;width:100%;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;background:#111;color:#fff}
-.page{width:100%;max-width:560px;margin:0 auto;padding:16px;text-align:center}
-h1{margin:6px 0 12px;font-size:24px}
-.note{margin-bottom:12px;padding:10px;border-radius:9px;background:#222;font-size:15px;line-height:1.45;text-align:left}
-#video-container{width:100%;overflow:hidden;border-radius:12px;background:#000}
-video{display:block;width:100%;height:auto}
-#result-box{margin-top:12px;padding:12px;border-radius:9px;background:#fff;color:#111;min-height:70px;font-size:16px;line-height:1.45;word-break:break-all;text-align:left}
-.success{background:#d4edda!important;color:#155724!important}
-.error{background:#f8d7da!important;color:#721c24!important}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>QRスキャナー</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 12px;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      text-align: center;
+    }
+    h2 { margin: 8px 0 16px; font-size: 20px; }
+    #reader {
+      width: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #222;
+    }
+    .cancel-btn {
+      margin-top: 16px;
+      padding: 12px 28px;
+      background: #555;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
-<div class="page">
-<h1>商品QRスキャナー</h1>
-<div class="note">
-商品QRをカメラにかざしてください。<br>
-読み取り成功後、元の発注画面へ品番だけ返します。
-</div>
-<div id="video-container"><video id="video" playsinline muted></video></div>
-<div id="result-box">カメラを起動しています…</div>
-<canvas id="canvas" hidden></canvas>
-</div>
 
-<script>
-const video=document.getElementById('video');
-const canvasElement=document.getElementById('canvas');
-const canvas=canvasElement.getContext('2d',{willReadFrequently:true});
-const resultBox=document.getElementById('result-box');
+  <h2>品番QRコードをスキャン</h2>
+  <div id="reader"></div>
+  <button class="cancel-btn" onclick="closeScanner()">閉じる</button>
 
-let stream=null;
-let isScanned=false;
-let invalidCooldown=false;
-
-function showError(message){
-  resultBox.classList.remove('success');
-  resultBox.classList.add('error');
-  resultBox.textContent=message;
-}
-
-function extractProductCode(decodedText){
-  try{
-    const url=new URL(decodedText);
-
-    // 商品QRは ?product=品番 を必須とする。
-    const productCode=String(url.searchParams.get('product')||'').trim();
-
-    if(!productCode){
-      return '';
-    }
-
-    // GAS商品QR以外を弾く。
-    const isGasUrl =
-      url.hostname === 'script.google.com' ||
-      url.hostname.endsWith('.googleusercontent.com');
-
-    if(!isGasUrl){
-      return '';
-    }
-
-    return productCode;
-  }catch(error){
-    return '';
-  }
-}
-
-function stopCamera(){
-  if(stream){
-    stream.getTracks().forEach(track=>track.stop());
-  }
-}
-
-function sendToParent(productCode){
-  if(!window.opener || window.opener.closed){
-    showError('元の発注画面が見つかりません。');
-    return;
-  }
-
-  window.opener.postMessage(
-    {
-      type:'QR_SCANNED',
-      productCode:productCode
-    },
-    '*'
-  );
-
-  resultBox.classList.remove('error');
-  resultBox.classList.add('success');
-  resultBox.innerHTML=
-    '読み取り成功<br>'+
-    productCode+
-    '<br>発注画面へ戻ります…';
-
-  stopCamera();
-
-  setTimeout(()=>{
-    window.close();
-  },300);
-}
-
-navigator.mediaDevices.getUserMedia({
-  audio:false,
-  video:{
-    facingMode:{ideal:'environment'}
-  }
-})
-.then(mediaStream=>{
-  stream=mediaStream;
-  video.srcObject=stream;
-  video.setAttribute('playsinline',true);
-  return video.play();
-})
-.then(()=>{
-  requestAnimationFrame(tick);
-})
-.catch(error=>{
-  showError('カメラの起動に失敗しました: '+error);
-});
-
-function tick(){
-  if(isScanned){
-    return;
-  }
-
-  if(video.readyState===video.HAVE_ENOUGH_DATA && !invalidCooldown){
-    canvasElement.width=video.videoWidth;
-    canvasElement.height=video.videoHeight;
-
-    canvas.drawImage(
-      video,
-      0,
-      0,
-      canvasElement.width,
-      canvasElement.height
-    );
-
-    const imageData=canvas.getImageData(
-      0,
-      0,
-      canvasElement.width,
-      canvasElement.height
-    );
-
-    const code=jsQR(
-      imageData.data,
-      imageData.width,
-      imageData.height,
-      {inversionAttempts:'dontInvert'}
-    );
-
-    if(code && code.data){
-      const productCode=extractProductCode(code.data);
-
-      if(productCode){
-        isScanned=true;
-
-        if(navigator.vibrate){
-          navigator.vibrate(150);
-        }
-
-        sendToParent(productCode);
-        return;
+  <script>
+    function onScanSuccess(decodedText, decodedResult) {
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear();
       }
 
-      // 無関係QRは親画面へ送らない。
-      invalidCooldown=true;
-      showError('商品QRではありません。');
-
-      setTimeout(()=>{
-        invalidCooldown=false;
-        resultBox.classList.remove('error');
-        resultBox.textContent='商品QRをカメラにかざしてください。';
-      },800);
+      // 親ウィンドウ（GAS）へ品番データを送信
+      if (window.opener) {
+        window.opener.postMessage({ productNo: decodedText }, '*');
+        window.close();
+      } else {
+        // 別タブ等で開かれた場合
+        window.postMessage({ productNo: decodedText }, '*');
+        window.close();
+      }
     }
-  }
 
-  requestAnimationFrame(tick);
-}
+    function closeScanner() {
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear();
+      }
+      window.close();
+    }
 
-window.addEventListener('pagehide',stopCamera);
-</script>
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+      "reader",
+      {
+        fps: 15,
+        qrbox: { width: 250, height: 250 },
+        rememberLastUsedCamera: true
+      },
+      false
+    );
+
+    html5QrcodeScanner.render(onScanSuccess);
+  </script>
 </body>
 </html>
