@@ -2,313 +2,432 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>QRスキャナー</title>
-  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  
+  <!-- jsQR ライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
   <style>
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
     }
+
     body {
-      background: #000;
-      color: #fff;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+      background: #111827;
+      color: #ffffff;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ヘッダー */
+    .header {
+      flex: 0 0 auto;
+      display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 100dvh;
-      padding: 16px 12px;
-      overflow: hidden;
+      padding: 10px 14px;
+      background: #1f2937;
+      border-bottom: 1px solid #374151;
     }
-    .header-area {
-      text-align: center;
-      margin-top: 8px;
-    }
+
     .header-title {
-      font-size: 20px;
-      font-weight: bold;
+      font-size: 18px;
+      font-weight: 800;
+      color: #f9fafb;
     }
-    .header-sub {
-      font-size: 13px;
-      color: #aaa;
-      margin-top: 4px;
+
+    .total-badge {
+      background: #2563eb;
+      color: #ffffff;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 15px;
+      font-weight: 900;
     }
-    #reader-container {
+
+    /* カメラ映像エリア */
+    .camera-container {
+      position: relative;
+      flex: 1 1 auto;
       width: 100%;
-      max-width: 480px;
-      flex: 1;
+      background: #000000;
+      overflow: hidden;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      position: relative;
     }
-    #reader {
+
+    video {
       width: 100%;
-      border-radius: 12px;
-      overflow: hidden;
-    }
-    #reader video {
-      border-radius: 12px;
+      height: 100%;
       object-fit: cover;
     }
-    
-    /* エラー警告トーストメッセージ */
-    #error-toast {
+
+    canvas {
       display: none;
-      position: absolute;
-      bottom: 12px;
-      background: rgba(220, 38, 38, 0.95);
-      color: #fff;
-      padding: 10px 16px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: bold;
-      text-align: center;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      z-index: 100;
-      max-width: 90%;
     }
 
-    .footer-actions {
-      width: 100%;
-      padding-bottom: max(8px, env(safe-area-inset-bottom));
-      display: flex;
-      justify-content: center;
+    /* スキャン枠ガイド */
+    .scan-guide {
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      border: 3px solid #10b981;
+      border-radius: 16px;
+      box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+      transition: border-color 0.15s;
     }
-    .cancel-btn {
-      width: min(100%, 320px);
+
+    .scan-guide.flash {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 4000px rgba(59, 130, 246, 0.3);
+    }
+
+    /* 下部：スキャン情報パネル */
+    .info-panel {
+      flex: 0 0 auto;
+      padding: 12px 14px;
+      background: #1f2937;
+      border-top: 1px solid #374151;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .latest-card {
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 56px;
+    }
+
+    .latest-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .latest-label {
+      font-size: 11px;
+      color: #9ca3af;
+      font-weight: 700;
+    }
+
+    .latest-id {
+      font-size: 17px;
+      font-weight: 900;
+      color: #60a5fa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .latest-qty-badge {
+      flex: 0 0 auto;
+      margin-left: 10px;
+      background: #059669;
+      color: #ffffff;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    /* ボタングループ */
+    .button-group {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 8px;
+    }
+
+    .btn {
       height: 52px;
-      background: #444;
-      color: #fff;
       border: 0;
       border-radius: 8px;
       font-size: 18px;
-      font-weight: bold;
-      touch-action: manipulation;
-    }
-    .cancel-btn:active {
-      background: #222;
-    }
-
-    /* 読取成功後のフォールバックUI */
-    #success-overlay {
-      display: none;
-      position: absolute;
-      top: 0; left: 0; width: 100%; height: 100%;
-      background: #111;
-      flex-direction: column;
+      font-weight: 900;
+      display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 999;
-      padding: 24px;
-      text-align: center;
-    }
-    #success-overlay .success-icon {
-      font-size: 56px;
-      margin-bottom: 16px;
-    }
-    #success-overlay h2 {
-      font-size: 22px;
-      margin-bottom: 12px;
-      color: #4ade80;
-    }
-    #success-overlay p {
-      font-size: 16px;
-      color: #ccc;
-      margin-bottom: 32px;
-    }
-    #success-overlay .return-btn {
-      width: 100%;
-      max-width: 300px;
-      height: 56px;
-      background: #2563eb;
-      color: white;
-      font-size: 18px;
-      font-weight: bold;
-      border: 0;
-      border-radius: 10px;
       touch-action: manipulation;
+      cursor: pointer;
+    }
+
+    .btn:active {
+      transform: scale(0.97);
+    }
+
+    .btn-undo {
+      background: #4b5563;
+      color: #ffffff;
+    }
+
+    .btn-undo:disabled {
+      background: #374151;
+      color: #6b7280;
+      opacity: 0.6;
+    }
+
+    .btn-confirm {
+      background: #10b981;
+      color: #ffffff;
     }
   </style>
 </head>
 <body>
 
-  <div class="header-area">
-    <div class="header-title">品番QRコードをかざしてください</div>
-    <div class="header-sub">（半角数字10桁の品番コード）</div>
+  <!-- ヘッダー -->
+  <div class="header">
+    <div class="header-title">QRコード読取</div>
+    <div id="totalBadge" class="total-badge">合計: 0 点</div>
   </div>
 
-  <div id="reader-container">
-    <div id="reader"></div>
-    <div id="error-toast"></div>
+  <!-- カメラプレビュー -->
+  <div class="camera-container">
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="canvas"></canvas>
+    <div id="scanGuide" class="scan-guide"></div>
   </div>
 
-  <div class="footer-actions">
-    <button class="cancel-btn" onclick="closeScanner()">キャンセル</button>
-  </div>
+  <!-- 下部操作パネル -->
+  <div class="info-panel">
+    <div class="latest-card">
+      <div class="latest-info">
+        <div class="latest-label">最後に読んだ商品ID</div>
+        <div id="latestId" class="latest-id">（未読取）</div>
+      </div>
+      <div id="latestQty" class="latest-qty-badge" style="display: none;">0 点目</div>
+    </div>
 
-  <!-- フォールバック用 -->
-  <div id="success-overlay">
-    <div class="success-icon">✅</div>
-    <h2>読み取りが完了しました</h2>
-    <p id="scanned-val-text">品番を送信しました。<br>元の発注画面へ戻ってください。</p>
-    <button class="return-btn" onclick="closeScanner()">この画面を閉じる</button>
+    <div class="button-group">
+      <button id="undoBtn" class="btn btn-undo" onclick="undoLastScan()" disabled>1つ取消</button>
+      <button class="btn btn-confirm" onclick="finishAndConfirm()">確定して戻る</button>
+    </div>
   </div>
 
   <script>
-    let html5QrCode = null;
-    let isProcessing = false;
-    let errorToastTimeout = null;
+    /* =====================================================
+       状態管理・スキャン履歴
+       ===================================================== */
+    const scannedCounts = {}; // { "7217107104_01_46": 2, ... }
+    const scanHistory = [];   // ["7217107104_01_46", ...] （取り消し用スタック）
+    let lastScannedCode = '';
+    let lastScanTime = 0;
+    const SCAN_COOLDOWN_MS = 1200; // 同一コードの重複防止ウェイト（1.2秒）
 
-    // Web Audio API による効果音生成（OS不問・遅延なし）
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const scanGuide = document.getElementById('scanGuide');
+    const latestIdEl = document.getElementById('latestId');
+    const latestQtyEl = document.getElementById('latestQty');
+    const totalBadgeEl = document.getElementById('totalBadge');
+    const undoBtn = document.getElementById('undoBtn');
 
-    function playBeep(isSuccess) {
-      if (audioCtx.state === 'suspended') {
+    /* =====================================================
+       iOS/Android対応 高品質ビープ音（Web Audio API）
+       ===================================================== */
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
         audioCtx.resume();
       }
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
+    }
 
-      if (isSuccess) {
-        // 成功音：高めの「ピッ」（880Hz → 1760Hz）
-        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1);
+    function playBeepSound() {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1760, audioCtx.currentTime); // 1760Hz（クリアな高音ピピッ）
+
         gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.15);
-      } else {
-        // エラー音：低めの「ブッ」（220Hz）
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(220, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.25);
+        osc.stop(audioCtx.currentTime + 0.12);
+      } catch (e) {
+        console.error('Audio Error:', e);
       }
     }
 
-    function startCamera() {
-      html5QrCode = new Html5Qrcode("reader");
+    // 初回タップ時にオーディオコンテキストをアクティブ化
+    window.addEventListener('touchstart', initAudio, { once: true });
+    window.addEventListener('click', initAudio, { once: true });
 
-      const config = {
-        fps: 20,
-        qrbox: function(viewfinderWidth, viewfinderHeight) {
-          const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-          const qrboxSize = Math.floor(minEdge * 0.75);
-          return { width: qrboxSize, height: qrboxSize };
-        },
-        aspectRatio: 1.0
-      };
-
-      html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        onScanSuccess,
-        onScanFailure
-      ).catch(err => {
-        console.error("背面カメラ起動失敗、標準カメラ試行", err);
-        html5QrCode.start(
-          { facingMode: "user" },
-          config,
-          onScanSuccess,
-          onScanFailure
-        ).catch(e => {
-          alert("カメラの起動に失敗しました: " + e);
+    /* =====================================================
+       カメラ起動・スキャンループ
+       ===================================================== */
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
         });
-      });
+        video.srcObject = stream;
+        video.setAttribute('playsinline', true);
+        await video.play();
+        requestAnimationFrame(tick);
+      } catch (err) {
+        alert('カメラの起動に失敗しました。カメラの利用権限を許可してください。\n' + err.message);
+      }
     }
 
-    function onScanSuccess(decodedText, decodedResult) {
-      if (isProcessing) return;
+    function tick() {
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      const trimmedText = (decodedText || '').trim();
-
-      // 【判定】半角数字10桁であるかチェック
-      const isProductNo = /^\d{10}$/.test(trimmedText);
-
-      if (!isProductNo) {
-        // --- ルール不一致の場合（無関係QR） ---
-        playBeep(false); // エラー音
-        showErrorToast('⚠️ 品番QRではありません<br>(10桁の数字が必要です: ' + trimmedText.slice(0, 15) + ')');
-        return; // スキャンを維持して抜ける
-      }
-
-      // --- ルール一致（成功時） ---
-      isProcessing = true;
-
-      // 1. Androidバイブレーション
-      if (navigator.vibrate) {
-        navigator.vibrate(80);
-      }
-
-      // 2. 成功音（ピッ）
-      playBeep(true);
-
-      // 3. カメラ停止 & 送信して戻る
-      if (html5QrCode) {
-        html5QrCode.stop().then(() => {
-          sendAndClose(trimmedText);
-        }).catch(() => {
-          sendAndClose(trimmedText);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: 'dontInvert'
         });
-      } else {
-        sendAndClose(trimmedText);
+
+        if (code && code.data) {
+          handleDetectedCode(code.data.trim());
+        }
       }
+      requestAnimationFrame(tick);
     }
 
-    function showErrorToast(msg) {
-      const toast = document.getElementById('error-toast');
-      toast.innerHTML = msg;
-      toast.style.display = 'block';
+    /* =====================================================
+       QR読み取り処理
+       ===================================================== */
+    function handleDetectedCode(rawCode) {
+      const now = Date.now();
 
-      if (errorToastTimeout) clearTimeout(errorToastTimeout);
-      errorToastTimeout = setTimeout(() => {
-        toast.style.display = 'none';
-      }, 2500);
-    }
-
-    function sendAndClose(text) {
-      if (window.opener && !window.opener.closed) {
-        window.opener.postMessage({ productNo: text }, '*');
+      // 同一コードかつクールダウン期間内の場合は無視
+      if (rawCode === lastScannedCode && (now - lastScanTime) < SCAN_COOLDOWN_MS) {
+        return;
       }
 
-      window.close();
+      // 商品ID形式（品番_色_サイズ）の簡易チェック
+      // 例: 7217107104_01_46 または 通常品番
+      lastScannedCode = rawCode;
+      lastScanTime = now;
 
-      // 閉じなかった場合のフォールバック表示
+      // カウントアップ
+      scannedCounts[rawCode] = (scannedCounts[rawCode] || 0) + 1;
+      scanHistory.push(rawCode);
+
+      // 音を鳴らし、枠を一瞬光らせる
+      playBeepSound();
+      flashScanGuide();
+
+      // 画面表示の更新
+      updateUi();
+    }
+
+    function flashScanGuide() {
+      scanGuide.classList.add('flash');
       setTimeout(() => {
-        document.getElementById('scanned-val-text').innerHTML = '品番: <strong>' + text + '</strong> を送信しました。<br>元の発注画面へ戻ってください。';
-        document.getElementById('success-overlay').style.display = 'flex';
+        scanGuide.classList.remove('flash');
       }, 200);
     }
 
-    function onScanFailure(error) {
-      // 探索ループ
+    /* =====================================================
+       取り消し・UI更新
+       ===================================================== */
+    function undoLastScan() {
+      if (!scanHistory.length) return;
+
+      const removedCode = scanHistory.pop();
+      if (scannedCounts[removedCode]) {
+        scannedCounts[removedCode]--;
+        if (scannedCounts[removedCode] <= 0) {
+          delete scannedCounts[removedCode];
+        }
+      }
+
+      lastScannedCode = ''; // リセットして再読取しやすくする
+      updateUi();
     }
 
-    function closeScanner() {
-      if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().then(() => {
-          window.close();
-          history.back();
-        }).catch(() => {
-          window.close();
-          history.back();
-        });
+    function updateUi() {
+      const totalCount = Object.values(scannedCounts).reduce((a, b) => a + b, 0);
+      totalBadgeEl.textContent = `合計: ${totalCount} 点`;
+
+      if (scanHistory.length > 0) {
+        const currentCode = scanHistory[scanHistory.length - 1];
+        const currentCount = scannedCounts[currentCode] || 0;
+
+        latestIdEl.textContent = currentCode;
+        latestQtyEl.style.display = 'block';
+        latestQtyEl.textContent = `${currentCount} 点目`;
+        undoBtn.disabled = false;
       } else {
-        window.close();
-        history.back();
+        latestIdEl.textContent = '（未読取）';
+        latestQtyEl.style.display = 'none';
+        undoBtn.disabled = true;
       }
     }
 
-    window.addEventListener('DOMContentLoaded', startCamera);
+    /* =====================================================
+       確定送信・親画面（GAS）連携
+       ===================================================== */
+    function finishAndConfirm() {
+      const payload = {
+        type: 'QR_SCAN_RESULT',
+        counts: scannedCounts, // { "商品ID": 数量, ... }
+        lastProductNo: getLastProductNo() // 最後にスキャンした品番（展開用）
+      };
+
+      // 親ウィンドウ（GAS）へデータ送信
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage(payload, '*');
+        window.close();
+      } else if (window.parent && window.parent !== window) {
+        window.parent.postMessage(payload, '*');
+      } else {
+        // 万が一単体で開いていた場合
+        alert('読み取り結果を保存しました。発注画面へお戻りください。');
+      }
+    }
+
+    function getLastProductNo() {
+      if (!scanHistory.length) return '';
+      const lastId = scanHistory[scanHistory.length - 1];
+      // アンダースコア区切りの先頭（または先頭10桁）を品番とする
+      if (lastId.includes('_')) {
+        return lastId.split('_')[0];
+      }
+      return lastId.substring(0, 10);
+    }
+
+    // 起動
+    window.addEventListener('load', startCamera);
   </script>
 </body>
 </html>
